@@ -1,8 +1,11 @@
+import MediaCard from "@/components/MediaCard";
 import {
+  fetchRelatedTVShows,
   fetchSeasonDetails,
   fetchTVShowDetails,
   getImageUrl,
   SeasonDetails,
+  TVResponse,
   TVShowDetails,
 } from "@/lib/tmdb";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
@@ -16,11 +19,11 @@ import {
   Dimensions,
   FlatList,
   Image,
-  ScrollView,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+import SelectDropdown from "react-native-select-dropdown";
 
 const { width } = Dimensions.get("window");
 const HEADER_MAX_HEIGHT = 280;
@@ -37,60 +40,55 @@ export default function TvshowDetail() {
     null
   );
   const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
-  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [related, setRelated] = useState<TVResponse | null>(null);
   const scrollY = useRef(new Animated.Value(0)).current;
-  const [activeTab, setActiveTab] = useState<"overview" | "cast" | "episodes">(
-    "overview"
-  );
+  const [activeTab, setActiveTab] = useState<
+   "episodes" | "overview" | "cast" |  "related"
+  >("episodes");
+  const { colors } = useTheme();
 
   useEffect(() => {
-    (async () => {
+    const load = async () => {
       try {
-        const data = await fetchTVShowDetails(id ?? "");
+        const data = await fetchTVShowDetails(id);
         setTv(data);
-        // auto-select first season if available
-        if (data.seasons && data.seasons.length > 0) {
-          const firstSeason = data.seasons[0].season_number;
-          setSelectedSeason(firstSeason);
+        // prefetch related shows
+        const rel = await fetchRelatedTVShows(id);
+        setRelated(rel);
+        // After fetching TV details, pick a sensible default season:
+        // exclude season 0 (specials) and seasons with no episodes
+        const availableSeasons =
+          data.seasons?.filter(
+            (s) => (s.season_number ?? 0) > 0 && (s.episode_count ?? 0) > 0
+          ) ?? [];
+        if (availableSeasons.length) {
+          const seasonOne = availableSeasons.find((s) => s.season_number === 1);
+          setSelectedSeason((seasonOne ?? availableSeasons[0]).season_number);
         }
-      } catch (e) {
-        console.error(e);
+      } catch (err) {
+        console.log(err);
       } finally {
         setLoading(false);
       }
-    })();
+    };
+    load();
   }, [id]);
 
   useEffect(() => {
-    if (!selectedSeason || !tv) return;
-    (async () => {
+    if (!selectedSeason) return;
+    const loadSeason = async () => {
       try {
         setSeasonLoading(true);
-        const sd = await fetchSeasonDetails(tv.id, selectedSeason);
-        setSeasonDetails(sd);
-      } catch (e) {
-        console.error(e);
+        const data = await fetchSeasonDetails(id, selectedSeason);
+        setSeasonDetails(data);
+      } catch (err) {
+        console.log(err);
       } finally {
         setSeasonLoading(false);
       }
-    })();
-  }, [selectedSeason, tv]);
-
-  const { colors } = useTheme();
-
-  if (loading)
-    return (
-      <View className="flex-1 justify-center items-center">
-        <ActivityIndicator color={colors.text} size="large" />
-      </View>
-    );
-
-  if (!tv)
-    return (
-      <View className="flex-1 justify-center items-center">
-        <Text className="text-white text-lg">TV show not found</Text>
-      </View>
-    );
+    };
+    loadSeason();
+  }, [id, selectedSeason]);
 
   const headerHeight = scrollY.interpolate({
     inputRange: [-200, 0, SCROLL_DISTANCE],
@@ -114,6 +112,33 @@ export default function TvshowDetail() {
     extrapolate: "clamp",
   });
 
+  const titleTranslate = scrollY.interpolate({
+    inputRange: [0, SCROLL_DISTANCE],
+    outputRange: [0, -20],
+    extrapolate: "clamp",
+  });
+
+  if (loading) {
+    return (
+      <View className="flex-1 bg-black justify-center items-center">
+        <ActivityIndicator color="#fff" size="large" />
+      </View>
+    );
+  }
+
+  if (!tv) {
+    return (
+      <View className="flex-1 bg-black justify-center items-center">
+        <Text className="text-white">TV show not found.</Text>
+      </View>
+    );
+  }
+
+  const seasonOptions =
+    tv?.seasons
+      ?.filter((s) => (s.season_number ?? 0) > 0 && (s.episode_count ?? 0) > 0)
+      .map((s) => ({ label: s.name, value: s.season_number })) ?? [];
+
   return (
     <View className="flex-1 bg-black">
       <TouchableOpacity
@@ -128,6 +153,7 @@ export default function TvshowDetail() {
       >
         <MaterialCommunityIcons name="arrow-left" size={26} color="#fff" />
       </TouchableOpacity>
+
       <Animated.View
         style={{
           position: "absolute",
@@ -147,15 +173,33 @@ export default function TvshowDetail() {
           resizeMode="cover"
         />
         <LinearGradient
-          colors={["transparent", "rgba(0,0,0,0.8)"]}
+          colors={["rgba(0,0,0,0.1)", "rgba(0,0,0,0.9)"]}
           style={{
             position: "absolute",
             bottom: 0,
             left: 0,
             right: 0,
-            height: HEADER_MAX_HEIGHT / 1.5,
+            height: HEADER_MAX_HEIGHT,
           }}
         />
+
+        {/* Title + rating inside collapsing header (disappears with image) */}
+        <Animated.View
+          style={{
+            position: "absolute",
+            bottom: 20,
+            left: 16,
+            right: 16,
+            zIndex: 15,
+            opacity: imageOpacity,
+            transform: [{ translateY: titleTranslate }],
+          }}
+        >
+          <Text className="text-white text-3xl font-bold">{tv.name}</Text>
+          <Text className="text-gray-400 mt-1 text-lg">
+            ⭐ {tv.vote_average.toFixed(1)} • {tv.first_air_date?.slice(0, 4)}
+          </Text>
+        </Animated.View>
       </Animated.View>
 
       <Animated.FlatList
@@ -163,128 +207,97 @@ export default function TvshowDetail() {
         renderItem={() => null}
         ListHeaderComponent={() => (
           <View className="p-5">
-            <Text className="text-white text-3xl font-bold">{tv.name}</Text>
-            <Text className="text-gray-400 mt-1 text-lg">
-              ⭐ {tv.vote_average.toFixed(1)} • {tv.first_air_date?.slice(0, 4)}
-            </Text>
-
-            {/* Tabs */}
-            <View className="flex-row mt-6 bg-neutral-900 rounded-full self-center overflow-hidden">
-              {["overview", "cast", "episodes"].map((tab) => (
-                <TouchableOpacity
-                  key={tab}
-                  onPress={() => setActiveTab(tab as any)}
-                  className={`flex-1 py-3 items-center ${
-                    activeTab === tab ? "bg-white" : ""
-                  }`}
-                >
-                  <Text
-                    className={`${
-                      activeTab === tab ? "text-black font-bold" : "text-white"
-                    } capitalize text-lg`}
+            <View className="flex-row mt-6 self-center gap-2">
+              {["overview", "cast", "episodes", "related"].map((tab) => {
+                const active = activeTab === (tab as any);
+                return (
+                  <TouchableOpacity
+                    key={tab}
+                    onPress={() => setActiveTab(tab as any)}
+                    className={`px-5 py-2 rounded-full ${
+                      active ? "bg-white" : "bg-neutral-900"
+                    }`}
                   >
-                    {tab}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+                    <Text
+                      className={`${
+                        active ? "text-black font-bold" : "text-white"
+                      } capitalize`}
+                    >
+                      {tab}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
-
-            {/* Content */}
-            {activeTab === "overview" && (
-              <Text className="text-gray-300 mt-5 leading-7">
-                {tv.overview}
-              </Text>
-            )}
-
-            {activeTab === "cast" && (
-              <FlatList
-                className="mt-5"
-                data={tv.credits.cast.slice(0, 20)}
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                keyExtractor={(c) => c.id.toString()}
-                renderItem={({ item }) => (
-                  <View className="mr-4 w-32">
-                    <Image
-                      source={{ uri: getImageUrl(item.profile_path, "w300") }}
-                      className="w-32 h-32 rounded-2xl bg-neutral-800"
-                    />
-                    <Text className="text-white font-semibold mt-2">
-                      {item.name}
-                    </Text>
-                    <Text className="text-gray-400 text-sm">
-                      {item.character}
-                    </Text>
-                  </View>
-                )}
-              />
-            )}
 
             {activeTab === "episodes" && (
               <View className="mt-5">
-                {/* Season selector */}
-                <View style={{ position: "relative" }}>
-                  <TouchableOpacity
-                    onPress={() => setDropdownOpen((s) => !s)}
-                    className="px-4 py-3 bg-neutral-800 rounded-lg flex-row justify-between items-center"
-                  >
-                    <Text className="text-white">
-                      Season {selectedSeason ?? "-"}
-                    </Text>
-                    <Text className="text-gray-300">
-                      {dropdownOpen ? "▲" : "▼"}
-                    </Text>
-                  </TouchableOpacity>
-
-                  {dropdownOpen && (
+                <SelectDropdown
+                  data={seasonOptions}
+                  onSelect={(selectedItem: any) =>
+                    setSelectedSeason(selectedItem?.value)
+                  }
+                  defaultValue={
+                    seasonOptions.find((s) => s.value === selectedSeason) ??
+                    null
+                  }
+                  renderButton={(selectedItem: any, isOpened: boolean) => (
                     <View
                       style={{
-                        position: "absolute",
-                        top: 48,
-                        left: 0,
-                        right: 0,
-                        zIndex: 50,
-                        maxHeight: 220,
+                        height: 48,
                         borderRadius: 8,
-                        overflow: "hidden",
-                        backgroundColor: "#0b0b0b",
+                        backgroundColor: "#000", // black theme
+                        paddingHorizontal: 12,
+                        borderWidth: 1,
+                        borderColor: "#333",
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "space-between",
                       }}
                     >
-                      <ScrollView
-                        nestedScrollEnabled
-                        style={{ maxHeight: 220 }}
+                      <Text
+                        style={{
+                          color: selectedItem ? "#fff" : "#666",
+                          fontSize: 16,
+                        }}
                       >
-                        {(tv.seasons ?? []).map((item) => (
-                          <TouchableOpacity
-                            key={item.id}
-                            style={{
-                              paddingHorizontal: 16,
-                              paddingVertical: 12,
-                              borderBottomWidth: 1,
-                              borderBottomColor: "rgba(255,255,255,0.04)",
-                            }}
-                            onPress={() => {
-                              setSelectedSeason(item.season_number);
-                              setDropdownOpen(false);
-                            }}
-                          >
-                            <Text className="text-white">{item.name}</Text>
-                            <Text className="text-gray-400 text-sm">
-                              Episodes: {item.episode_count ?? "-"}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
-                      </ScrollView>
+                        {(selectedItem && selectedItem.label) ||
+                          "Select Season"}
+                      </Text>
+                      <MaterialCommunityIcons
+                        name={isOpened ? "chevron-up" : "chevron-down"}
+                        size={20}
+                        color="#fff"
+                      />
                     </View>
                   )}
-                </View>
+                  renderItem={(
+                    item: any,
+                    index: number,
+                    isSelected: boolean
+                  ) => (
+                    <View
+                      style={{
+                        backgroundColor: isSelected ? "#333" : "#000",
+                        paddingVertical: 12,
+                        paddingHorizontal: 8,
+                      }}
+                    >
+                      <Text style={{ color: "#fff" }}>{item.label}</Text>
+                    </View>
+                  )}
+                  dropdownStyle={{
+                    backgroundColor: "#000",
+                    borderColor: "#333",
+                  }}
+                  dropdownOverlayColor="rgba(0,0,0,0.3)"
+                  showsVerticalScrollIndicator={false}
+                />
 
-                {/* Episodes list (rendered without FlatList to avoid nested vertical VirtualizedLists) */}
-                <View className="mt-4">
+                <View className="mt-5">
                   {seasonLoading && (
                     <ActivityIndicator color="#fff" size="small" />
                   )}
-
                   {!seasonLoading && seasonDetails && (
                     <View>
                       {(seasonDetails.episodes ?? []).map((item) => (
@@ -313,13 +326,91 @@ export default function TvshowDetail() {
                       ))}
                     </View>
                   )}
-
-                  {!seasonLoading && !seasonDetails && (
-                    <Text className="text-gray-400">
-                      Select a season to view episodes.
-                    </Text>
-                  )}
                 </View>
+              </View>
+            )}
+
+            {activeTab === "overview" && (
+              <View className="mt-5">
+                <Text className="text-gray-300 leading-7">{tv.overview}</Text>
+                <View className="mt-5 gap-2">
+                  <View className="flex-row flex-wrap gap-x-3 gap-y-2">
+                    {(tv.genres ?? []).slice(0, 4).map((g: any) => (
+                      <View
+                        key={g.id}
+                        className="bg-neutral-900 px-3 py-1 rounded-full"
+                      >
+                        <Text className="text-gray-200 text-sm">{g.name}</Text>
+                      </View>
+                    ))}
+                  </View>
+                  <View className="h-px bg-neutral-800 my-2" />
+                  <View className="flex-row flex-wrap">
+                    <InfoItem
+                      label="Run time"
+                      value={`${tv.episode_run_time?.[0] ?? 0} min`}
+                    />
+                    <InfoItem
+                      label="First air"
+                      value={tv.first_air_date?.slice(0, 10) ?? "-"}
+                    />
+                    <InfoItem label="Status" value={tv.status ?? "-"} />
+                    <InfoItem
+                      label="Language"
+                      value={
+                        tv.spoken_languages?.[0]?.english_name ??
+                        tv.spoken_languages?.[0]?.name ??
+                        "-"
+                      }
+                    />
+                    <InfoItem
+                      label="Country"
+                      value={tv.production_countries?.[0]?.name ?? "-"}
+                    />
+                  </View>
+                </View>
+              </View>
+            )}
+
+            {activeTab === "cast" && (
+              <FlatList
+                className="mt-5"
+                data={tv.credits?.cast?.slice(0, 20) ?? []}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                keyExtractor={(c) => c.id.toString()}
+                renderItem={({ item }) => (
+                  <View className="mr-4 w-32">
+                    <Image
+                      source={{ uri: getImageUrl(item.profile_path, "w300") }}
+                      className="w-32 h-32 rounded-2xl bg-neutral-800"
+                    />
+                    <Text className="text-white font-semibold mt-2">
+                      {item.name}
+                    </Text>
+                    <Text className="text-gray-400 text-sm">
+                      {item.character}
+                    </Text>
+                  </View>
+                )}
+              />
+            )}
+
+            {activeTab === "related" && (
+              <View className="mt-6">
+                {related?.results?.length ? (
+                  <FlatList
+                    data={related.results.filter((m) => m.poster_path)}
+                    keyExtractor={(item) => item.id.toString()}
+                    numColumns={3}
+                    showsHorizontalScrollIndicator={false}
+                    renderItem={({ item }) => (
+                      <MediaCard key={item.id} media={item} />
+                    )}
+                  />
+                ) : (
+                  <Text className="text-gray-400">No related shows.</Text>
+                )}
               </View>
             )}
           </View>
@@ -352,8 +443,21 @@ export default function TvshowDetail() {
           borderBottomColor: "rgba(255,255,255,0.1)",
         }}
       >
-        <Text className="text-white text-lg font-semibold">{tv.name}</Text>
+        <Text className="text-white text-lg font-semibold">{tv?.name}</Text>
       </Animated.View>
     </View>
   );
 }
+
+// Local helper for label/value display
+const InfoItem: React.FC<{ label: string; value: string }> = ({
+  label,
+  value,
+}) => (
+  <View className="mr-5 mb-2">
+    <Text className="text-gray-400 text-xs">{label}</Text>
+    <Text className="text-white text-sm mt-0.5" numberOfLines={1}>
+      {value}
+    </Text>
+  </View>
+);

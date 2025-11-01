@@ -237,6 +237,16 @@ export interface MovieDetails extends Movie {
   credits: Credits;
   // The detailed movie endpoint returns full genre objects
   genres?: Genre[];
+  // additional fields from detailed endpoint
+  runtime?: number;
+  status?: string;
+  spoken_languages?: Array<{
+    iso_639_1: string;
+    name: string;
+    english_name?: string;
+  }>;
+  production_countries?: Array<{ iso_3166_1: string; name: string }>;
+  release_dates?: any;
 }
 
 export interface TVShowDetails extends TVShow {
@@ -246,6 +256,15 @@ export interface TVShowDetails extends TVShow {
   credits: Credits;
   // Detailed TV endpoint returns seasons
   seasons?: Season[];
+  genres?: Genre[];
+  status?: string;
+  episode_run_time?: number[];
+  spoken_languages?: Array<{
+    iso_639_1: string;
+    name: string;
+    english_name?: string;
+  }>;
+  production_countries?: Array<{ iso_3166_1: string; name: string }>;
 }
 
 export interface Season {
@@ -276,6 +295,27 @@ export interface SeasonDetails {
   season_number: number;
   episodes: Episode[];
   poster_path: string | null;
+}
+
+// Related/recommendations endpoints
+export async function fetchRelatedMovies(
+  movieId: number | string,
+  page = 1
+): Promise<MovieResponse> {
+  const res = await fetch(
+    buildUrl(`/movie/${movieId}/recommendations`, { page })
+  );
+  if (!res.ok) throw new Error("Failed to fetch related movies");
+  return await res.json();
+}
+
+export async function fetchRelatedTVShows(
+  tvId: number | string,
+  page = 1
+): Promise<TVResponse> {
+  const res = await fetch(buildUrl(`/tv/${tvId}/recommendations`, { page }));
+  if (!res.ok) throw new Error("Failed to fetch related TV shows");
+  return await res.json();
 }
 
 /*

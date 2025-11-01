@@ -1,6 +1,6 @@
+import AppHeader from "@/components/AppHeader";
 import MediaCard from "@/components/MediaCard";
 import Slider from "@/components/Slider";
-import { Ionicons } from "@expo/vector-icons";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -13,6 +13,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   fetchPopularMovies,
   fetchPopularTVShows,
+  fetchTrendingMovies,
+  fetchTrendingTVShows,
   Movie,
   TVShow,
 } from "../../lib/tmdb";
@@ -20,8 +22,11 @@ import {
 const Home = () => {
   const [movies, setMovies] = useState<Movie[]>([]);
   const [tvshows, setTVShows] = useState<TVShow[]>([]);
+  const [sliderItems, setSliderItems] = useState<(Movie | TVShow)[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sliderLoading, setSliderLoading] = useState(true);
+  const [sliderError, setSliderError] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
 
   useEffect(() => {
@@ -30,8 +35,8 @@ const Home = () => {
         setLoading(true);
         const movieData = await fetchPopularMovies();
         const tvshowData = await fetchPopularTVShows();
-        setMovies(movieData.results);
-        setTVShows(tvshowData.results);
+        setMovies(movieData.results.filter((m) => !!m.poster_path));
+        setTVShows(tvshowData.results.filter((t) => !!t.poster_path));
       } catch (err) {
         setError((err as Error).message);
       } finally {
@@ -39,6 +44,25 @@ const Home = () => {
       }
     }
     loadMedia();
+  }, []);
+
+  useEffect(() => {
+    async function loadSliderItems() {
+      try {
+        setSliderLoading(true);
+        const trendingMovies = await fetchTrendingMovies();
+        const trendingTV = await fetchTrendingTVShows();
+        const combined = [...trendingMovies.results, ...trendingTV.results]
+          .filter((item) => !!item.poster_path)
+          .sort((a, b) => b.popularity - a.popularity);
+        setSliderItems(combined);
+      } catch (err) {
+        setSliderError((err as Error).message);
+      } finally {
+        setSliderLoading(false);
+      }
+    }
+    loadSliderItems();
   }, []);
 
   if (loading)
@@ -56,13 +80,13 @@ const Home = () => {
     );
   return (
     <>
-      <HomeHeader />
+      <AppHeader />
       <ScrollView
         showsVerticalScrollIndicator={false}
         className="flex-1"
         contentContainerStyle={{ paddingBottom: insets.bottom + 80 }}
       >
-        <Slider />
+        <Slider items={sliderItems} />
         <View className="px-4 mt-6">
           <Text className="text-white font-bold text-xl mb-3">
             Popular Movies
@@ -95,19 +119,4 @@ const Home = () => {
 
 export default Home;
 
-const HomeHeader = () => {
-  return (
-    <View className="p-6 pt-10 flex-row justify-between items-center">
-      <Text className="text-white font-extrabold text-2xl">CineFlix</Text>
-      <Ionicons
-        name="search"
-        size={22}
-        color="white"
-        onPress={() => {
-          // Handle search navigation here
-          console.log("Search pressed");
-        }}
-      />
-    </View>
-  );
-};
+// Header moved to components/AppHeader

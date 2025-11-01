@@ -1,11 +1,5 @@
-import {
-  fetchTrendingMovies,
-  fetchTrendingTVShows,
-  getImageUrl,
-  Movie,
-  TVShow,
-} from "@/lib/tmdb";
-import React, { useEffect, useRef, useState } from "react";
+import { getImageUrl, Movie, TVShow } from "@/lib/tmdb";
+import React, { useRef, useState } from "react";
 import { ActivityIndicator, Dimensions, Image, Text, View } from "react-native";
 import {
   runOnJS,
@@ -16,10 +10,17 @@ import Carousel, { ICarouselInstance } from "react-native-reanimated-carousel";
 
 const { width, height } = Dimensions.get("window");
 
-const Slider = () => {
-  const [items, setItems] = useState<(Movie | TVShow)[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+interface SliderProps {
+  items: (Movie | TVShow)[];
+
+ 
+}
+
+const Slider: React.FC<SliderProps> = ({
+  items,
+
+
+}) => {
   const [currentIndex, setCurrentIndex] = useState(0);
 
   const ref = useRef<ICarouselInstance>(null);
@@ -40,47 +41,9 @@ const Slider = () => {
     }
   );
 
-  useEffect(() => {
-    async function loadMedia() {
-      try {
-        const movieData = await fetchTrendingMovies();
-        const tvshowData = await fetchTrendingTVShows();
+  // No fetching here; data is passed in as props
 
-        const combinedItems = [
-          ...movieData.results,
-          ...tvshowData.results,
-        ].sort((a, b) => b.popularity - a.popularity);
-        setItems(combinedItems);
-      } catch (err) {
-        setError((err as Error).message);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-    loadMedia();
-  }, []);
 
-  if (isLoading) {
-    return (
-      <View
-        className="justify-center items-center"
-        style={{ height: height * 0.4 }}
-      >
-        <ActivityIndicator size="large" color="#FFFFFF" />
-      </View>
-    );
-  }
-
-  if (error) {
-    return (
-      <View
-        className="justify-center items-center"
-        style={{ height: height * 0.4 }}
-      >
-        <Text className="text-red-500 text-base">{error}</Text>
-      </View>
-    );
-  }
 
   return (
     <View className="mt-10">

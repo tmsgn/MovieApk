@@ -1,4 +1,11 @@
-import { fetchMovieDetails, getImageUrl, MovieDetails } from "@/lib/tmdb";
+import MediaCard from "@/components/MediaCard";
+import {
+  fetchMovieDetails,
+  fetchRelatedMovies,
+  getImageUrl,
+  MovieDetails,
+  MovieResponse,
+} from "@/lib/tmdb";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { useTheme } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
@@ -25,6 +32,7 @@ export default function MovieDetailsScreen() {
   const router = useRouter();
   const [movie, setMovie] = useState<MovieDetails | null>(null);
   const [loading, setLoading] = useState(true);
+  const [related, setRelated] = useState<MovieResponse | null>(null);
   const scrollY = useRef(new Animated.Value(0)).current;
   const [activeTab, setActiveTab] = useState<"overview" | "cast" | "related">(
     "overview"
@@ -35,6 +43,9 @@ export default function MovieDetailsScreen() {
       try {
         const data = await fetchMovieDetails(id ?? "");
         setMovie(data);
+        // also load related movies
+        const rel = await fetchRelatedMovies(id ?? "");
+        setRelated(rel);
       } catch (e) {
         console.error(e);
       } finally {
@@ -78,6 +89,12 @@ export default function MovieDetailsScreen() {
   const imageScale = scrollY.interpolate({
     inputRange: [-200, 0, SCROLL_DISTANCE],
     outputRange: [1.4, 1, 1],
+    extrapolate: "clamp",
+  });
+
+  const titleTranslate = scrollY.interpolate({
+    inputRange: [0, SCROLL_DISTANCE],
+    outputRange: [0, -20],
     extrapolate: "clamp",
   });
 
@@ -127,6 +144,25 @@ export default function MovieDetailsScreen() {
             zIndex: 10,
           }}
         />
+
+        {/* Title + rating inside collapsing header (disappears with image) */}
+        <Animated.View
+          style={{
+            position: "absolute",
+            bottom: 20,
+            left: 16,
+            right: 16,
+            zIndex: 15,
+            opacity: imageOpacity,
+            transform: [{ translateY: titleTranslate }],
+          }}
+        >
+          <Text className="text-white text-3xl font-bold">{movie.title}</Text>
+          <Text className="text-gray-200 mt-1 text-lg">
+            ⭐ {movie.vote_average.toFixed(1)} •{" "}
+            {movie.release_date?.slice(0, 4)}
+          </Text>
+        </Animated.View>
       </Animated.View>
 
       {/* Scrollable content */}
@@ -138,39 +174,89 @@ export default function MovieDetailsScreen() {
           { useNativeDriver: false }
         )}
       >
+        <View className="items-center mt-4 px-4">
+          <TouchableOpacity
+            onPress={() =>
+              router.push({
+                pathname: "/player/movie/[id]",
+                params: { id: String(movie.id) },
+              } as any)
+            }
+            className="w-full flex-row items-center justify-center bg-white py-2 rounded-full"
+            activeOpacity={0.9}
+          >
+            <MaterialCommunityIcons name="play" size={24} color="#000" />
+            <Text className="text-black text-lg font-bold ml-2">Play</Text>
+          </TouchableOpacity>
+        </View>
         <View className="p-5">
-          <Text className="text-white text-3xl font-bold">{movie.title}</Text>
-          <Text className="text-gray-400 mt-1 text-lg">
-            ⭐ {movie.vote_average.toFixed(1)} •{" "}
-            {movie.release_date?.slice(0, 4)}
-          </Text>
-
           {/* Tabs */}
-          <View className="flex-row mt-6 bg-neutral-900 rounded-full self-center overflow-hidden">
-            {["overview", "cast", "related"].map((tab) => (
-              <TouchableOpacity
-                key={tab}
-                onPress={() => setActiveTab(tab as any)}
-                className={`flex-1 py-3 items-center ${
-                  activeTab === tab ? "bg-white" : ""
-                }`}
-              >
-                <Text
-                  className={`${
-                    activeTab === tab ? "text-black font-bold" : "text-white"
-                  } capitalize text-lg`}
+          <View className="flex-row mt-6 self-center gap-2">
+            {["overview", "cast", "related"].map((tab) => {
+              const active = activeTab === (tab as any);
+              return (
+                <TouchableOpacity
+                  key={tab}
+                  onPress={() => setActiveTab(tab as any)}
+                  className={`px-5 py-2 rounded-full ${
+                    active ? "bg-white" : "bg-neutral-900"
+                  }`}
                 >
-                  {tab}
-                </Text>
-              </TouchableOpacity>
-            ))}
+                  <Text
+                    className={`${
+                      active ? "text-black font-bold" : "text-white"
+                    } capitalize`}
+                  >
+                    {tab}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
 
           {/* Content */}
           {activeTab === "overview" && (
-            <Text className="text-gray-300 mt-5 leading-7">
-              {movie.overview}
-            </Text>
+            <View className="mt-5">
+              <Text className="text-gray-300 leading-7">{movie.overview}</Text>
+
+              {/* additional metadata */}
+              <View className="mt-5 gap-2">
+                <View className="flex-row flex-wrap gap-x-3 gap-y-2">
+                  {movie.genres?.slice(0, 4).map((g) => (
+                    <View
+                      key={g.id}
+                      className="bg-neutral-900 px-3 py-1 rounded-full"
+                    >
+                      <Text className="text-gray-200 text-sm">{g.name}</Text>
+                    </View>
+                  ))}
+                </View>
+                <View className="h-px bg-neutral-800 my-2" />
+                <View className="flex-row flex-wrap">
+                  <InfoItem
+                    label="Runtime"
+                    value={`${movie.runtime ?? 0} min`}
+                  />
+                  <InfoItem
+                    label="Release"
+                    value={movie.release_date?.slice(0, 10) ?? "-"}
+                  />
+                  <InfoItem label="Status" value={movie.status ?? "-"} />
+                  <InfoItem
+                    label="Language"
+                    value={
+                      movie.spoken_languages?.[0]?.english_name ??
+                      movie.spoken_languages?.[0]?.name ??
+                      "-"
+                    }
+                  />
+                  <InfoItem
+                    label="Country"
+                    value={movie.production_countries?.[0]?.name ?? "-"}
+                  />
+                </View>
+              </View>
+            </View>
           )}
 
           {activeTab === "cast" && (
@@ -199,7 +285,19 @@ export default function MovieDetailsScreen() {
 
           {activeTab === "related" && (
             <View className="mt-6">
-              <Text className="text-gray-400">No related movies yet</Text>
+              {related?.results?.length ? (
+                <FlatList
+                  data={related.results.filter((m) => m.poster_path)}
+                  keyExtractor={(item) => item.id.toString()}
+                  numColumns={3}
+                  showsHorizontalScrollIndicator={false}
+                  renderItem={({ item }) => (
+                    <MediaCard key={item.id} media={item} />
+                  )}
+                />
+              ) : (
+                <Text className="text-gray-400">No related movies.</Text>
+              )}
             </View>
           )}
         </View>
@@ -231,3 +329,16 @@ export default function MovieDetailsScreen() {
     </View>
   );
 }
+
+// Small helper component for overview metadata rows
+const InfoItem: React.FC<{ label: string; value: string }> = ({
+  label,
+  value,
+}) => (
+  <View className="mr-5 mb-2">
+    <Text className="text-gray-400 text-xs">{label}</Text>
+    <Text className="text-white text-sm mt-0.5" numberOfLines={1}>
+      {value}
+    </Text>
+  </View>
+);

@@ -1,7 +1,7 @@
 import { Movie, TVShow, getImageUrl } from "@/lib/tmdb";
 import { useRouter } from "expo-router";
 import React from "react";
-import { Dimensions, Image, Text, TouchableOpacity, View } from "react-native";
+import { Dimensions, Image, Text, TouchableOpacity } from "react-native";
 
 interface MediaCardProps {
   media: Movie | TVShow;
@@ -24,27 +24,26 @@ const MediaCard: React.FC<MediaCardProps> = ({ media }) => {
     router.push({ pathname, params: { id: String(media.id) } } as any);
   };
 
+  if (!imageUrl) {
+    // Skip rendering items without poster images as requested
+    return null;
+  }
+
   return (
     <TouchableOpacity
       onPress={handlePress}
       activeOpacity={0.8}
       style={{ width: CARD_WIDTH, marginRight: 9, borderRadius: 6 }}
     >
-      {imageUrl ? (
-        <Image
-          style={{
-            width: CARD_WIDTH,
-            height: screenHeight * 0.19,
-            borderRadius: 6,
-          }}
-          resizeMode="cover"
-          source={{ uri: imageUrl }}
-        />
-      ) : (
-        <View style={{ width: CARD_WIDTH }}>
-          <Text>No Image</Text>
-        </View>
-      )}
+      <Image
+        style={{
+          width: CARD_WIDTH,
+          height: screenHeight * 0.19,
+          borderRadius: 6,
+        }}
+        resizeMode="cover"
+        source={{ uri: imageUrl }}
+      />
 
       <Text
         style={{ width: CARD_WIDTH }}

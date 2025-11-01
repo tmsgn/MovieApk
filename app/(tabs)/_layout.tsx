@@ -12,12 +12,13 @@ export default function TabLayout() {
 
   return (
     <NativeTabs
-    indicatorColor={'white'}
+      indicatorColor={"white"}
       backgroundColor={colors.background}
       labelStyle={{ fontSize: 12 }}
     >
-      <NativeTabs.Trigger  name="index">
+      <NativeTabs.Trigger name="index">
         <Icon
+          selectedColor={"black"}
           src={<VectorIcon family={MaterialCommunityIcons} name="home" />}
         />
         <Label>Home</Label>
@@ -25,12 +26,14 @@ export default function TabLayout() {
 
       <NativeTabs.Trigger name="movies">
         <Icon
+          selectedColor={"black"}
           src={<VectorIcon family={MaterialCommunityIcons} name="movie-open" />}
         />
         <Label>Movies</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="tvshows">
         <Icon
+          selectedColor={"black"}
           src={<VectorIcon family={MaterialCommunityIcons} name="television" />}
         />
         <Label>Tvshows</Label>
@@ -38,6 +41,7 @@ export default function TabLayout() {
 
       <NativeTabs.Trigger name="watchlist">
         <Icon
+          selectedColor={"black"}
           src={
             <VectorIcon
               family={MaterialCommunityIcons}
