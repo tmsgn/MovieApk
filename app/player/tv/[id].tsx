@@ -1,4 +1,9 @@
-import { fetchMovieDetails, MovieDetails } from "@/lib/tmdb";
+import {
+  fetchSeasonDetails,
+  fetchTVShowDetails,
+  SeasonDetails,
+  TVShowDetails,
+} from "@/lib/tmdb";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import {
   FileBasedStream,
@@ -19,7 +24,6 @@ import {
   Animated,
   Dimensions,
   Easing,
-  GestureResponderEvent,
   Modal,
   Pressable,
   Text,
@@ -30,16 +34,21 @@ import { useSharedValue } from "react-native-reanimated";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
-export default function VideoScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+type PlayerSource = string | { uri: string; headers?: Record<string, string> };
+
+export default function TvPlayerScreen() {
+  const { id, season, episode } = useLocalSearchParams<{
+    id: string;
+    season?: string;
+    episode?: string;
+  }>();
   const router = useRouter();
 
-  type PlayerSource =
-    | string
-    | { uri: string; headers?: Record<string, string> };
-
   const [source, setSource] = useState<PlayerSource>("");
-  const [movie, setMovie] = useState<MovieDetails | null>(null);
+  const [tv, setTv] = useState<TVShowDetails | null>(null);
+  const [seasonDetails, setSeasonDetails] = useState<SeasonDetails | null>(
+    null
+  );
   const [loading, setLoading] = useState(false);
   const [streamType, setStreamType] = useState<"hls" | "file" | undefined>();
   const [mp4Qualities, setMp4Qualities] = useState<
@@ -90,6 +99,7 @@ export default function VideoScreen() {
     HlsBasedStream | FileBasedStream | undefined
   >(undefined);
 
+  // Orientation lock
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -134,8 +144,31 @@ export default function VideoScreen() {
     else progress.value = 0;
   }, [currentTime, duration]);
 
-  const handlePlay = async () => {
-    if (!id) return;
+  const seasonNumber = useMemo(
+    () => (season ? parseInt(String(season), 10) : undefined),
+    [season]
+  );
+  const episodeNumber = useMemo(
+    () => (episode ? parseInt(String(episode), 10) : undefined),
+    [episode]
+  );
+
+  const fmt = (s: number) => {
+    if (!Number.isFinite(s)) return "00:00";
+    const sign = s < 0 ? "-" : "";
+    s = Math.max(0, Math.floor(Math.abs(s)));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60)
+      .toString()
+      .padStart(2, "0");
+    const sec = Math.floor(s % 60)
+      .toString()
+      .padStart(2, "0");
+    return h > 0 ? `${sign}${h}:${m}:${sec}` : `${sign}${m}:${sec}`;
+  };
+
+  // Fetch show + season data and play
+  const handlePlay = async (tvId: string, sNumber: number, eNumber: number) => {
     let isMounted = true;
     try {
       setLoading(true);
@@ -149,23 +182,44 @@ export default function VideoScreen() {
       setStreamHeaders(undefined);
       setMasterHlsUrl(undefined);
 
-      const details = await fetchMovieDetails(id);
+      const details = await fetchTVShowDetails(tvId);
       if (!isMounted) return;
-      setMovie(details);
+      setTv(details);
+
+      const seasonDet = await fetchSeasonDetails(tvId, sNumber);
+      if (!isMounted) return;
+      setSeasonDetails(seasonDet);
+
+      // Resolve current episode
+      const ep = seasonDet.episodes.find((e) => e.episode_number === eNumber);
+      if (!ep) {
+        setErrorMessage("Episode not found");
+        return;
+      }
 
       const providers = makeProviders({
-        fetcher: makeStandardFetcher(fetch),
+        fetcher: makeStandardFetcher(fetch as any),
         target: targets.NATIVE,
         consistentIpForRequests: true,
       });
 
       const media: ScrapeMedia = {
-        type: "movie",
-        title: details.title,
-        releaseYear: details.release_date
-          ? Number(details.release_date.slice(0, 4))
+        type: "show",
+        title: details.name,
+        releaseYear: details.first_air_date
+          ? Number(details.first_air_date.slice(0, 4))
           : 0,
         tmdbId: String(details.id),
+        episode: {
+          number: ep.episode_number,
+          tmdbId: String(ep.id),
+        },
+        season: {
+          number: seasonDet.season_number,
+          tmdbId: String(seasonDet.id),
+          title: seasonDet.name,
+          episodeCount: seasonDet.episodes?.length || undefined,
+        },
       };
 
       const output = await providers.runAll({ media });
@@ -216,7 +270,7 @@ export default function VideoScreen() {
         if (items.length > 0) {
           setSelectedQuality(items[0].label);
           setSource({
-            uri: items[0].url,
+            uri: items[0].url!,
             headers: (output.stream as any).headers,
           });
         } else if ((output.stream as any).url) {
@@ -228,7 +282,7 @@ export default function VideoScreen() {
         }
       }
     } catch (err) {
-      console.log("Error fetching movie or stream:", err);
+      console.log("Error fetching show or stream:", err);
       setErrorMessage("Failed to load stream");
     } finally {
       setLoading(false);
@@ -238,30 +292,17 @@ export default function VideoScreen() {
     };
   };
 
+  // Auto start when params available
   useEffect(() => {
-    if (!autoStarted && id) {
-      handlePlay();
+    if (!autoStarted && id && seasonNumber && episodeNumber) {
+      handlePlay(String(id), seasonNumber, episodeNumber);
       setAutoStarted(true);
     }
-  }, [id, autoStarted]);
+  }, [id, seasonNumber, episodeNumber, autoStarted]);
 
   useEffect(() => {
     if (source) setHasStarted(false);
   }, [source]);
-
-  const fmt = (s: number) => {
-    if (!Number.isFinite(s)) return "00:00";
-    const sign = s < 0 ? "-" : "";
-    s = Math.max(0, Math.floor(Math.abs(s)));
-    const h = Math.floor(s / 3600);
-    const m = Math.floor((s % 3600) / 60)
-      .toString()
-      .padStart(2, "0");
-    const sec = Math.floor(s % 60)
-      .toString()
-      .padStart(2, "0");
-    return h > 0 ? `${sign}${h}:${m}:${sec}` : `${sign}${m}:${sec}`;
-  };
 
   const onSeek = (pos: number) => {
     try {
@@ -301,7 +342,9 @@ export default function VideoScreen() {
 
   const onRetry = () => {
     setControlsVisible(true);
-    handlePlay();
+    if (id && seasonNumber && episodeNumber) {
+      handlePlay(String(id), seasonNumber, episodeNumber);
+    }
   };
 
   const fadeControls = (to: number, dur = 200) => {
@@ -317,41 +360,60 @@ export default function VideoScreen() {
     fadeControls(controlsVisible ? 1 : 0);
   }, [controlsVisible]);
 
-  const lastTap = useRef<number>(0);
-  const onBackgroundPress = (e?: GestureResponderEvent) => {
-    const now = Date.now();
-    const TAP_DELAY = 300;
-    if (now - lastTap.current < TAP_DELAY) {
-      const x = e?.nativeEvent.locationX ?? 0;
-      if (x > SCREEN_WIDTH * 0.66) {
-        try {
-          player.currentTime = Math.min(
-            player.duration ?? 0,
-            (player.currentTime ?? 0) + 10
-          );
-        } catch {}
-      } else if (x < SCREEN_WIDTH * 0.33) {
-        try {
-          player.currentTime = Math.max(0, (player.currentTime ?? 0) - 10);
-        } catch {}
-      } else {
-        try {
-          player.currentTime = Math.min(
-            player.duration ?? 0,
-            (player.currentTime ?? 0) + 10
-          );
-        } catch {}
-      }
-    } else {
-      setControlsVisible((s) => !s);
+  // Compute next episode (within season or next season)
+  const computeNextEpisode = () => {
+    if (!tv || !seasonDetails || !seasonNumber || !episodeNumber) return null;
+    const episodes = seasonDetails.episodes || [];
+    const idx = episodes.findIndex((e) => e.episode_number === episodeNumber);
+    if (idx >= 0 && idx + 1 < episodes.length) {
+      return {
+        season: seasonNumber,
+        episode: episodes[idx + 1].episode_number,
+      };
     }
-    lastTap.current = now;
+    // Next season
+    const seasons = (tv.seasons || [])
+      .filter((s) => (s.season_number ?? 0) > 0 && (s.episode_count ?? 0) > 0)
+      .sort((a, b) => (a.season_number ?? 0) - (b.season_number ?? 0));
+    const currentIdx = seasons.findIndex(
+      (s) => s.season_number === seasonNumber
+    );
+    if (currentIdx >= 0 && currentIdx + 1 < seasons.length) {
+      return { season: seasons[currentIdx + 1].season_number, episode: 1 };
+    }
+    return null;
+  };
+
+  const goToNext = async () => {
+    const next = computeNextEpisode();
+    if (!next || !id) return;
+    // Update route so deep links reflect position
+    router.replace({
+      pathname: "/player/tv/[id]",
+      params: {
+        id: String(id),
+        season: String(next.season),
+        episode: String(next.episode),
+      },
+    });
+    // Also trigger playback immediately (router.replace is async visually)
+    await handlePlay(String(id), next.season, next.episode);
   };
 
   const qualityLabel = useMemo(
     () => selectedQuality ?? (streamType === "hls" ? "Auto" : "—"),
     [selectedQuality, streamType]
   );
+
+  const headerTitle = useMemo(() => {
+    const s = seasonNumber ?? 0;
+    const e = episodeNumber ?? 0;
+    const se =
+      s && e
+        ? `S${String(s).padStart(2, "0")}E${String(e).padStart(2, "0")}`
+        : "";
+    return `${tv?.name ?? "TV Show"}${se ? " • " + se : ""}`;
+  }, [tv?.name, seasonNumber, episodeNumber]);
 
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
@@ -368,7 +430,7 @@ export default function VideoScreen() {
         />
 
         <Pressable
-          onPress={onBackgroundPress}
+          onPress={() => setControlsVisible((s) => !s)}
           style={{ position: "absolute", inset: 0 }}
           accessibilityLabel="Video background"
         >
@@ -405,12 +467,12 @@ export default function VideoScreen() {
                     color="#fff"
                   />
                 </Pressable>
-                {!!movie?.title && (
+                {!!headerTitle && (
                   <Text
                     style={{ color: "#fff", fontSize: 16, maxWidth: "70%" }}
                     numberOfLines={1}
                   >
-                    {movie.title}
+                    {headerTitle}
                   </Text>
                 )}
               </View>
@@ -418,6 +480,22 @@ export default function VideoScreen() {
               <View
                 style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
               >
+                {/* Next episode button */}
+                <Pressable
+                  onPress={goToNext}
+                  disabled={!computeNextEpisode()}
+                  style={{
+                    paddingVertical: 8,
+                    paddingHorizontal: 12,
+                    borderRadius: 8,
+                    backgroundColor: computeNextEpisode()
+                      ? "rgba(255,255,255,0.12)"
+                      : "rgba(255,255,255,0.05)",
+                  }}
+                >
+                  <Text style={{ color: "#fff", fontSize: 12 }}>Next</Text>
+                </Pressable>
+
                 <Pressable
                   onPress={() =>
                     setContentFit((v) =>
@@ -597,15 +675,6 @@ export default function VideoScreen() {
                   {fmt(duration)}
                 </Text>
               </View>
-
-              <View
-                style={{
-                  marginTop: 12,
-                  flexDirection: "row",
-                  justifyContent: "space-around",
-                  alignItems: "center",
-                }}
-              ></View>
             </View>
           </Animated.View>
         </Pressable>

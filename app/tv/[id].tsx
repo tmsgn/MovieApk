@@ -43,7 +43,7 @@ export default function TvshowDetail() {
   const [related, setRelated] = useState<TVResponse | null>(null);
   const scrollY = useRef(new Animated.Value(0)).current;
   const [activeTab, setActiveTab] = useState<
-   "episodes" | "overview" | "cast" |  "related"
+    "episodes" | "overview" | "cast" | "related"
   >("episodes");
   const { colors } = useTheme();
 
@@ -302,7 +302,22 @@ export default function TvshowDetail() {
                     <View>
                       {(seasonDetails.episodes ?? []).map((item) => (
                         <View key={item.id}>
-                          <View className="flex-row">
+                          <TouchableOpacity
+                            className="flex-row"
+                            activeOpacity={0.8}
+                            onPress={() =>
+                              router.push({
+                                pathname: "/player/tv/[id]",
+                                params: {
+                                  id: String(id),
+                                  season: String(
+                                    selectedSeason ?? item.season_number
+                                  ),
+                                  episode: String(item.episode_number),
+                                },
+                              })
+                            }
+                          >
                             <Image
                               source={{
                                 uri: getImageUrl(item.still_path, "w300"),
@@ -320,7 +335,7 @@ export default function TvshowDetail() {
                                 {item.overview || "No description available."}
                               </Text>
                             </View>
-                          </View>
+                          </TouchableOpacity>
                           <View className="h-px bg-neutral-800 my-3" />
                         </View>
                       ))}
