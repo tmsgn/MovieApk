@@ -232,32 +232,35 @@ export default function TvPlayerScreen() {
         return;
       }
 
+      // Prefer provider's preferredHeaders; otherwise fallback to headers
+      const mergedHeaders =
+        (output.stream as any).preferredHeaders ||
+        (output.stream as any).headers ||
+        undefined;
+
       if ((output.stream as HlsBasedStream).type === "hls") {
         setStreamType("hls");
         const playlist = (output.stream as HlsBasedStream).playlist;
         setMasterHlsUrl(playlist);
-        setSource(playlist);
+        setStreamHeaders(mergedHeaders);
+
+        // Keep master for adaptive quality (Auto)
+        setSelectedQuality(undefined);
+        setSource(
+          mergedHeaders ? { uri: playlist, headers: mergedHeaders } : playlist
+        );
 
         try {
-          const res = await fetch(playlist);
+          const res = await fetch(playlist, { headers: mergedHeaders } as any);
           const text = await res.text();
           const variants = parseHlsVariants(text, playlist);
           setHlsVariants(variants);
-          if (variants.length > 0) {
-            const best = [...variants].sort(
-              (a, b) =>
-                (b.height ?? 0) - (a.height ?? 0) ||
-                (b.bandwidth ?? 0) - (a.bandwidth ?? 0)
-            )[0];
-            setSelectedQuality(best.label);
-            setSource(best.url);
-          }
         } catch (e) {
           console.log("Failed to parse HLS variants; staying on master:", e);
         }
       } else if ((output.stream as any).type === "file") {
         setStreamType("file");
-        setStreamHeaders((output.stream as any).headers);
+        setStreamHeaders(mergedHeaders);
         const qualitiesMap = (output.stream as any).qualities || {};
         const numericKeys = Object.keys(qualitiesMap)
           .map((k) => parseInt(k, 10))
@@ -269,16 +272,15 @@ export default function TvPlayerScreen() {
         setMp4Qualities(items);
         if (items.length > 0) {
           setSelectedQuality(items[0].label);
-          setSource({
-            uri: items[0].url!,
-            headers: (output.stream as any).headers,
-          });
+          setSource({ uri: items[0].url!, headers: mergedHeaders });
         } else if ((output.stream as any).url) {
           setSelectedQuality(undefined);
           setSource({
             uri: (output.stream as any).url,
-            headers: (output.stream as any).headers,
+            headers: mergedHeaders,
           });
+        } else {
+          setErrorMessage("No playable file qualities found");
         }
       }
     } catch (err) {
@@ -319,11 +321,18 @@ export default function TvPlayerScreen() {
     const pos = currentTime;
     setSelectedQuality(label);
     if (isAuto) {
-      if (masterHlsUrl) setSource(masterHlsUrl);
+      if (masterHlsUrl) {
+        setSource(
+          streamHeaders
+            ? { uri: masterHlsUrl, headers: streamHeaders }
+            : masterHlsUrl
+        );
+      }
     } else if (streamType === "file") {
       setSource({ uri: url!, headers: streamHeaders });
     } else {
-      setSource(url!);
+      // HLS variant
+      setSource(streamHeaders ? { uri: url!, headers: streamHeaders } : url!);
     }
     setPendingSeek(pos);
   };
