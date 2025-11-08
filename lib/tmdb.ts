@@ -122,6 +122,30 @@ export async function fetchTVGenres(): Promise<GenreResponse> {
   return await res.json();
 }
 
+// ----- External IDs (IMDB, etc.) -----
+
+export async function fetchMovieExternalIds(
+  movieId: number | string
+): Promise<{ imdb_id: string | null } & Record<string, any>> {
+  const res = await fetch(buildUrl(`/movie/${movieId}/external_ids`));
+  if (!res.ok) throw new Error("Failed to fetch movie external ids");
+  return await res.json();
+}
+
+export async function fetchTVEpisodeExternalIds(
+  tvId: number | string,
+  seasonNumber: number | string,
+  episodeNumber: number | string
+): Promise<{ imdb_id: string | null } & Record<string, any>> {
+  const res = await fetch(
+    buildUrl(
+      `/tv/${tvId}/season/${seasonNumber}/episode/${episodeNumber}/external_ids`
+    )
+  );
+  if (!res.ok) throw new Error("Failed to fetch TV episode external ids");
+  return await res.json();
+}
+
 // ----- Types -----
 
 export interface MovieResponse {

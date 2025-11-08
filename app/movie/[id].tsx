@@ -1,13 +1,5 @@
 import MediaCard from "@/components/MediaCard";
 import {
-  addToWatchlist,
-  clearMovieProgress,
-  fmtTime,
-  getMovieProgress,
-  isInWatchlist,
-  removeFromWatchlist,
-} from "@/lib/storage";
-import {
   fetchMovieDetails,
   fetchRelatedMovies,
   getImageUrl,
@@ -41,8 +33,6 @@ export default function MovieDetailsScreen() {
   const [movie, setMovie] = useState<MovieDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [related, setRelated] = useState<MovieResponse | null>(null);
-  const [inWatchlist, setInWatchlist] = useState(false);
-  const [resumeSec, setResumeSec] = useState<number | null>(null);
   const scrollY = useRef(new Animated.Value(0)).current;
   const [activeTab, setActiveTab] = useState<"overview" | "cast" | "related">(
     "overview"
@@ -56,14 +46,6 @@ export default function MovieDetailsScreen() {
         // also load related movies
         const rel = await fetchRelatedMovies(id ?? "");
         setRelated(rel);
-        // watchlist + progress
-        try {
-          setInWatchlist(await isInWatchlist("movie", Number(id)));
-        } catch {}
-        try {
-          const prog = await getMovieProgress(Number(id));
-          if (prog && prog.position > 60) setResumeSec(prog.position);
-        } catch {}
       } catch (e) {
         console.error(e);
       } finally {
@@ -193,102 +175,22 @@ export default function MovieDetailsScreen() {
         )}
       >
         <View className="items-center mt-4 px-4">
-          {/* If we have a resume point, show Continue/Start over, else show Play */}
-          {resumeSec == null ? (
-            <View className="w-full flex-row gap-3">
-              <TouchableOpacity
-                onPress={() =>
-                  router.push({
-                    pathname: "/player/movie/[id]",
-                    params: { id: String(movie.id) },
-                  } as any)
-                }
-                className="flex-1 flex-row items-center justify-center bg-white py-2 rounded-full"
-                activeOpacity={0.9}
-              >
-                <MaterialCommunityIcons name="play" size={24} color="#000" />
-                <Text className="text-black text-lg font-bold ml-2">Play</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={async () => {
-                  if (!movie) return;
-                  if (inWatchlist) {
-                    await removeFromWatchlist("movie", movie.id);
-                    setInWatchlist(false);
-                  } else {
-                    await addToWatchlist({
-                      type: "movie",
-                      id: movie.id,
-                      title: movie.title,
-                      poster_path: movie.poster_path,
-                    });
-                    setInWatchlist(true);
-                  }
-                }}
-                className="px-4 items-center justify-center bg-neutral-900 border border-neutral-800 rounded-full"
-                activeOpacity={0.9}
-              >
-                <Text className="text-white font-semibold">
-                  {inWatchlist ? "Saved" : "Save"}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <View className="w-full flex-row gap-3 mt-3 items-stretch">
-              <TouchableOpacity
-                onPress={() =>
-                  router.push({
-                    pathname: "/player/movie/[id]",
-                    params: { id: String(movie.id) },
-                  } as any)
-                }
-                className="flex-1 flex-row items-center justify-center bg-white py-2 rounded-full"
-                activeOpacity={0.9}
-              >
-                <MaterialCommunityIcons name="play" size={22} color="#000" />
-                <Text className="text-black font-semibold ml-2">
-                  Continue at {fmtTime(resumeSec)}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={async () => {
-                  if (!movie) return;
-                  await clearMovieProgress(movie.id);
-                  router.push({
-                    pathname: "/player/movie/[id]",
-                    params: { id: String(movie.id) },
-                  } as any);
-                }}
-                className="px-4 items-center justify-center bg-neutral-900 border border-neutral-800 rounded-full"
-                activeOpacity={0.9}
-              >
-                <Text className="text-white font-semibold">Start over</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={async () => {
-                  if (!movie) return;
-                  if (inWatchlist) {
-                    await removeFromWatchlist("movie", movie.id);
-                    setInWatchlist(false);
-                  } else {
-                    await addToWatchlist({
-                      type: "movie",
-                      id: movie.id,
-                      title: movie.title,
-                      poster_path: movie.poster_path,
-                    });
-                    setInWatchlist(true);
-                  }
-                }}
-                className="px-4 items-center justify-center bg-neutral-900 border border-neutral-800 rounded-full"
-                activeOpacity={0.9}
-              >
-                <Text className="text-white font-semibold">
-                  {inWatchlist ? "Saved" : "Save"}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          )}
+          {/* Play button (navigates to single player page) */}
+          <View className="w-full">
+            <TouchableOpacity
+              onPress={() =>
+                router.push({
+                  pathname: "/player/[id]",
+                  params: { id: String(movie.id), type: "movie" },
+                } as any)
+              }
+              className="w-full flex-row items-center justify-center bg-white py-2 rounded-full"
+              activeOpacity={0.9}
+            >
+              <MaterialCommunityIcons name="play" size={24} color="#000" />
+              <Text className="text-black text-lg font-bold ml-2">Play</Text>
+            </TouchableOpacity>
+          </View>
         </View>
         <View className="p-5">
           {/* Tabs */}

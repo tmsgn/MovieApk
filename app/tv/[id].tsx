@@ -1,11 +1,5 @@
 import MediaCard from "@/components/MediaCard";
 import {
-  addToWatchlist,
-  fmtTime,
-  isInWatchlist,
-  removeFromWatchlist,
-} from "@/lib/storage";
-import {
   fetchRelatedTVShows,
   fetchSeasonDetails,
   fetchTVShowDetails,
@@ -15,14 +9,12 @@ import {
   TVShowDetails,
 } from "@/lib/tmdb";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Animated,
   Dimensions,
   FlatList,
@@ -54,19 +46,13 @@ export default function TvshowDetail() {
     "episodes" | "overview" | "cast" | "related"
   >("episodes");
   const { colors } = useTheme();
-  const [inWatchlist, setInWatchlist] = useState(false);
-  const [episodeProgress, setEpisodeProgress] = useState<
-    Record<number, number>
-  >({});
 
   useEffect(() => {
     const load = async () => {
       try {
         const data = await fetchTVShowDetails(id);
         setTv(data);
-        try {
-          setInWatchlist(await isInWatchlist("tv", Number(id)));
-        } catch {}
+
         // prefetch related shows
         const rel = await fetchRelatedTVShows(id);
         setRelated(rel);
@@ -96,30 +82,6 @@ export default function TvshowDetail() {
         setSeasonLoading(true);
         const data = await fetchSeasonDetails(id, selectedSeason);
         setSeasonDetails(data);
-        // load progress for each episode in this season
-        try {
-          const keys = (data.episodes ?? []).map(
-            (e) =>
-              `@watchProgress:tv:${id}:S${selectedSeason}E${e.episode_number}`
-          );
-          const pairs = await AsyncStorage.multiGet(keys);
-          const map: Record<number, number> = {};
-          for (const [k, v] of pairs) {
-            if (!v) continue;
-            let sec = 0;
-            try {
-              const obj = JSON.parse(v);
-              if (typeof obj?.position === "number") sec = obj.position;
-            } catch {
-              const n = parseInt(v, 10);
-              if (!Number.isNaN(n)) sec = n;
-            }
-            const m = k.match(/E(\d+)$/);
-            const epNum = m ? parseInt(m[1], 10) : undefined;
-            if (epNum) map[epNum] = sec;
-          }
-          setEpisodeProgress(map);
-        } catch {}
       } catch (err) {
         console.log(err);
       } finally {
@@ -246,33 +208,7 @@ export default function TvshowDetail() {
         renderItem={() => null}
         ListHeaderComponent={() => (
           <View className="p-5">
-            {/* Save/Remove watchlist */}
-            {tv && (
-              <View className="flex-row justify-end mb-2">
-                <TouchableOpacity
-                  onPress={async () => {
-                    if (!tv) return;
-                    if (inWatchlist) {
-                      await removeFromWatchlist("tv", tv.id);
-                      setInWatchlist(false);
-                    } else {
-                      await addToWatchlist({
-                        type: "tv",
-                        id: tv.id,
-                        title: tv.name,
-                        poster_path: tv.poster_path,
-                      });
-                      setInWatchlist(true);
-                    }
-                  }}
-                  className="px-4 py-2 rounded-full border border-neutral-800"
-                >
-                  <Text className="text-white">
-                    {inWatchlist ? "Saved" : "Save"}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )}
+            {/* (watchlist removed) */}
             <View className="flex-row mt-6 self-center gap-2">
               {["overview", "cast", "episodes", "related"].map((tab) => {
                 const active = activeTab === (tab as any);
@@ -372,35 +308,19 @@ export default function TvshowDetail() {
                             className="flex-row"
                             activeOpacity={0.8}
                             onPress={() => {
-                              const ep = item.episode_number;
-                              const sec = episodeProgress[ep];
-                              const go = (startOver?: boolean) =>
+                              const go = () =>
                                 router.push({
-                                  pathname: "/player/tv/[id]",
+                                  pathname: "/player/[id]",
                                   params: {
                                     id: String(id),
+                                    type: "tv",
                                     season: String(
                                       selectedSeason ?? item.season_number
                                     ),
                                     episode: String(item.episode_number),
                                   },
                                 } as any);
-                              if (sec && sec > 30) {
-                                Alert.alert(
-                                  "Resume episode?",
-                                  `Continue at ${fmtTime(sec)} or start over?`,
-                                  [
-                                    {
-                                      text: "Start over",
-                                      style: "destructive",
-                                      onPress: () => go(true),
-                                    },
-                                    { text: "Continue", onPress: () => go() },
-                                  ]
-                                );
-                              } else {
-                                go();
-                              }
+                              go();
                             }}
                           >
                             <Image
@@ -419,10 +339,6 @@ export default function TvshowDetail() {
                               >
                                 {item.overview || "No description available."}
                               </Text>
-                              {!!episodeProgress[item.episode_number] &&
-                                episodeProgress[item.episode_number] > 30 && (
-                                  <Text className="text-gray-300 text-xs mt-1">{`Continue at ${fmtTime(episodeProgress[item.episode_number])}`}</Text>
-                                )}
                             </View>
                           </TouchableOpacity>
                           <View className="h-px bg-neutral-800 my-3" />
