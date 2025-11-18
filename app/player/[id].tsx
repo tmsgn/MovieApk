@@ -1,6 +1,8 @@
+import { upsertEpisodeProgress, upsertMovieProgress } from "@/lib/storage";
 import {
   fetchMovieDetails,
   fetchMovieExternalIds,
+  fetchSeasonDetails,
   fetchTVEpisodeExternalIds,
   fetchTVShowDetails,
 } from "@/lib/tmdb";
@@ -31,6 +33,7 @@ import {
   Modal,
   Pressable,
   ScrollView,
+  StatusBar,
   Text,
   TouchableOpacity,
   View,
@@ -41,6 +44,9 @@ import Video, {
   OnProgressData,
   VideoRef,
 } from "react-native-video";
+import SystemNavigationBar from "react-native-system-navigation-bar";
+
+SystemNavigationBar.navigationHide();
 
 /* -------------------- Types -------------------- */
 
@@ -366,12 +372,13 @@ async function parseQualities(stream: Stream): Promise<QualityOption[]> {
 /* -------------------- Main Component -------------------- */
 
 export default function SinglePlayer() {
-  const { id, type, season, episode, imdbId } = useLocalSearchParams<{
+  const { id, type, season, episode, imdbId, startAt } = useLocalSearchParams<{
     id: string;
     type?: MediaType;
     season?: string;
     episode?: string;
     imdbId?: string;
+    startAt?: string;
   }>();
   const router = useRouter();
   useLandscapeLock();
@@ -453,6 +460,8 @@ export default function SinglePlayer() {
 
   // Display title (movie title or TV show name). Fallback to id when unavailable.
   const [displayTitle, setDisplayTitle] = useState<string | null>(null);
+  const [posterPath, setPosterPath] = useState<string | null>(null);
+  const [episodeCount, setEpisodeCount] = useState<number | null>(null);
   useEffect(() => {
     let mounted = true;
     setDisplayTitle(null);
@@ -461,10 +470,24 @@ export default function SinglePlayer() {
         if (!media) return;
         if (media.type === "movie") {
           const details = await fetchMovieDetails(media.tmdbId);
-          if (mounted) setDisplayTitle(details?.title ?? String(id));
+          if (mounted) {
+            setDisplayTitle(details?.title ?? String(id));
+            setPosterPath(details?.poster_path ?? null);
+          }
         } else {
           const details = await fetchTVShowDetails(media.tmdbId);
-          if (mounted) setDisplayTitle(details?.name ?? String(id));
+          if (mounted) {
+            setDisplayTitle(details?.name ?? String(id));
+            setPosterPath(details?.poster_path ?? null);
+          }
+          // Fetch season meta for next/prev
+          const sNum = media.season?.number;
+          if (sNum) {
+            try {
+              const s = await fetchSeasonDetails(media.tmdbId, sNum);
+              if (mounted) setEpisodeCount((s.episodes ?? []).length || null);
+            } catch {}
+          } else if (mounted) setEpisodeCount(null);
         }
       } catch {
         if (mounted) setDisplayTitle(String(id));
@@ -474,6 +497,15 @@ export default function SinglePlayer() {
       mounted = false;
     };
   }, [media, id, type, season, episode, imdbId]);
+
+  // Honor startAt param for resume
+  useEffect(() => {
+    if (startAt) {
+      const t = Math.max(0, Number(startAt) || 0);
+      resumeAtRef.current = t;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startAt]);
 
   /* -------- Controls auto-hide ---------- */
 
@@ -746,6 +778,8 @@ export default function SinglePlayer() {
   const onLoad = useCallback((data: OnLoadData) => {
     setDuration(data.duration ?? 0);
     setIsLoading(false);
+    // Allow progress to persist only after video metadata is available
+    canSaveRef.current = true;
     // If we queued a resume position, seek immediately after load
     if (resumeAtRef.current && resumeAtRef.current > 0) {
       const t = resumeAtRef.current;
@@ -758,6 +792,8 @@ export default function SinglePlayer() {
   const onProgress = useCallback(
     (data: OnProgressData) => {
       if (!seeking) setPosition(data.currentTime);
+      // Mark safe to save when actual playback time advances
+      if (data.currentTime > 1) canSaveRef.current = true;
     },
     [seeking]
   );
@@ -889,10 +925,52 @@ export default function SinglePlayer() {
     }
   }
 
+  /* -------- Persist progress ---------- */
+  const canSaveRef = useRef(false);
+  const saveProgress = useCallback(async () => {
+    try {
+      if (!media || !canSaveRef.current) return;
+      const dur = Math.max(duration || 0, 1);
+      const pos = Math.max(0, position || 0);
+      if (media.type === "movie") {
+        await upsertMovieProgress({
+          id: Number(media.tmdbId),
+          title: displayTitle || undefined,
+          poster_path: posterPath || undefined,
+          position: pos,
+          duration: dur,
+        });
+      } else if (media.type === "show") {
+        await upsertEpisodeProgress({
+          showId: Number(media.tmdbId),
+          showName: displayTitle || undefined,
+          poster_path: posterPath || undefined,
+          season: media.season?.number || 1,
+          episode: media.episode?.number || 1,
+          position: pos,
+          duration: dur,
+        });
+      }
+    } catch {}
+  }, [media, position, duration, displayTitle, posterPath]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      // save every 5s
+      saveProgress();
+    }, 5000);
+    return () => {
+      clearInterval(timer);
+      // Avoid writing zero position if playback never started
+      saveProgress();
+    };
+  }, [saveProgress]);
+
   /* -------- Render ---------- */
 
   return (
-    <View className="flex-1 bg-black">
+    <View className="flex-1">
+      <StatusBar hidden/>
       {/* Video Layer */}
       {sourceUrl ? (
         <>
@@ -1078,7 +1156,35 @@ export default function SinglePlayer() {
           </View>
 
           {/* Buttons */}
-          <View className="flex-row items-center justify-center w-full mt-2 gap-x-12">
+          <View className="flex-row items-center justify-center w-full mt-2 gap-x-6">
+            {media?.type === "show" && (
+              <TouchableOpacity
+                onPress={() => {
+                  const ep = Number(
+                    episode || (media as any).episode?.number || 1
+                  );
+                  const prevEp = Math.max(1, ep - 1);
+                  if (ep === prevEp) return;
+                  resumeAtRef.current = 0;
+                  router.replace({
+                    pathname: "/player/[id]",
+                    params: {
+                      id: String(id),
+                      type: "tv",
+                      season: String(media.season?.number || season || "1"),
+                      episode: String(prevEp),
+                    },
+                  } as any);
+                }}
+                className="p-2 rounded-full"
+              >
+                <MaterialCommunityIcons
+                  name="skip-previous"
+                  size={32}
+                  color="white"
+                />
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
               onPress={() => {
                 seekTo(Math.max(position - 10, 0));
@@ -1120,9 +1226,86 @@ export default function SinglePlayer() {
                 color="white"
               />
             </TouchableOpacity>
+
+            {media?.type === "show" && (
+              <TouchableOpacity
+                onPress={() => {
+                  const count = episodeCount || Number.MAX_SAFE_INTEGER;
+                  const ep = Number(
+                    episode || (media as any).episode?.number || 1
+                  );
+                  const nextEp = Math.min(count, ep + 1);
+                  if (ep === nextEp) return;
+                  resumeAtRef.current = 0;
+                  router.replace({
+                    pathname: "/player/[id]",
+                    params: {
+                      id: String(id),
+                      type: "tv",
+                      season: String(media.season?.number || season || "1"),
+                      episode: String(nextEp),
+                    },
+                  } as any);
+                }}
+                className="p-2 rounded-full"
+              >
+                <MaterialCommunityIcons
+                  name="skip-next"
+                  size={32}
+                  color="white"
+                />
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       )}
+
+      {/* Persistent Next Episode button (7 min before end) */}
+      {media?.type === "show" &&
+        episodeCount &&
+        duration > 0 &&
+        duration - position <= 420 && (
+          <View
+            style={{
+              position: "absolute",
+              right: 16,
+              // Higher when controls visible so it sits above them; lower when hidden
+              bottom: showControls ? 105 : 36,
+            }}
+          >
+            <TouchableOpacity
+              onPress={() => {
+                const ep = Number(
+                  episode || (media as any).episode?.number || 1
+                );
+                if (ep >= (episodeCount || ep)) return;
+                resumeAtRef.current = 0;
+                router.replace({
+                  pathname: "/player/[id]",
+                  params: {
+                    id: String(id),
+                    type: "tv",
+                    season: String(media.season?.number || season || "1"),
+                    episode: String(ep + 1),
+                  },
+                } as any);
+              }}
+              className="px-4 py-2 rounded-full bg-white/90"
+              activeOpacity={0.85}
+            >
+              <View className="flex-row items-center">
+                <Text className="text-black font-semibold mr-1">
+                  Next Episode
+                </Text>
+                <MaterialCommunityIcons
+                  name="skip-next"
+                  size={20}
+                  color="#000"
+                />
+              </View>
+            </TouchableOpacity>
+          </View>
+        )}
 
       {/* Provider Modal */}
       <Modal

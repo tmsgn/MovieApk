@@ -1,5 +1,12 @@
 import MediaCard from "@/components/MediaCard";
 import {
+  formatTimestampLabel,
+  getMovieProgress,
+  isSaved,
+  resetMovieProgress,
+  toggleSave,
+} from "@/lib/storage";
+import {
   fetchMovieDetails,
   fetchRelatedMovies,
   getImageUrl,
@@ -37,6 +44,8 @@ export default function MovieDetailsScreen() {
   const [activeTab, setActiveTab] = useState<"overview" | "cast" | "related">(
     "overview"
   );
+  const [saved, setSaved] = useState(false);
+  const [progressSec, setProgressSec] = useState<number | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -46,6 +55,11 @@ export default function MovieDetailsScreen() {
         // also load related movies
         const rel = await fetchRelatedMovies(id ?? "");
         setRelated(rel);
+        // saved state and progress
+        const s = await isSaved(Number(id), "movie");
+        setSaved(s);
+        const p = await getMovieProgress(Number(id));
+        setProgressSec(p ? Math.floor(p.position) : null);
       } catch (e) {
         console.error(e);
       } finally {
@@ -177,19 +191,85 @@ export default function MovieDetailsScreen() {
         <View className="items-center mt-4 px-4">
           {/* Play button (navigates to single player page) */}
           <View className="w-full">
-            <TouchableOpacity
-              onPress={() =>
-                router.push({
-                  pathname: "/player/[id]",
-                  params: { id: String(movie.id), type: "movie" },
-                } as any)
-              }
-              className="w-full flex-row items-center justify-center bg-white py-2 rounded-full"
-              activeOpacity={0.9}
-            >
-              <MaterialCommunityIcons name="play" size={24} color="#000" />
-              <Text className="text-black text-lg font-bold ml-2">Play</Text>
-            </TouchableOpacity>
+            {/* Only show the large Play button when there is no saved progress. If progress exists show Continue / Start Over only. */}
+            {!(progressSec !== null && progressSec > 0) && (
+              <TouchableOpacity
+                onPress={() =>
+                  router.push({
+                    pathname: "/player/[id]",
+                    params: { id: String(movie.id), type: "movie" },
+                  } as any)
+                }
+                className="w-full flex-row items-center justify-center bg-white py-2 rounded-full"
+                activeOpacity={0.9}
+              >
+                <MaterialCommunityIcons name="play" size={24} color="#000" />
+                <Text className="text-black text-lg font-bold ml-2">Play</Text>
+              </TouchableOpacity>
+            )}
+
+            {/* Continue/Start over if progress - show timestamp in the Continue label */}
+            {progressSec !== null && progressSec > 0 && (
+              <View className="flex-row mt-3 gap-3">
+                <TouchableOpacity
+                  onPress={() =>
+                    router.push({
+                      pathname: "/player/[id]",
+                      params: {
+                        id: String(movie.id),
+                        type: "movie",
+                        startAt: String(progressSec),
+                      },
+                    } as any)
+                  }
+                  className="flex-1 items-center justify-center bg-white/10 py-2 rounded-full"
+                >
+                  <Text className="text-white font-semibold">{`Continue at ${formatTimestampLabel(progressSec)}`}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={async () => {
+                    await resetMovieProgress(Number(id));
+                    setProgressSec(null);
+                  }}
+                  className="flex-1 items-center justify-center bg-white/10 py-2 rounded-full"
+                >
+                  <Text className="text-white font-semibold">Start Over</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            {/* Save button */}
+            <View className="mt-3">
+              <TouchableOpacity
+                onPress={async () => {
+                  if (!movie) return;
+                  const nowSaved = await toggleSave({
+                    id: movie.id,
+                    type: "movie",
+                    title: movie.title,
+                    poster_path: movie.poster_path,
+                    backdrop_path: movie.backdrop_path,
+                    addedAt: Date.now(),
+                  });
+                  setSaved(nowSaved);
+                }}
+                className={`w-full flex-row items-center justify-center ${
+                  saved ? "bg-white/10" : "bg-white"
+                } py-2 rounded-full`}
+              >
+                <MaterialCommunityIcons
+                  name={saved ? "bookmark-check" : "bookmark-plus"}
+                  size={22}
+                  color={saved ? "#fff" : "#000"}
+                />
+                <Text
+                  className={`text-lg font-bold ml-2 ${
+                    saved ? "text-white" : "text-black"
+                  }`}
+                >
+                  {saved ? "Saved" : "Save"}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
         <View className="p-5">

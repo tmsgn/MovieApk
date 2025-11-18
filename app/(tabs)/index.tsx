@@ -1,6 +1,11 @@
 import AppHeader from "@/components/AppHeader";
 import MediaCard from "@/components/MediaCard";
 import Slider from "@/components/Slider";
+import {
+  ContinueItem,
+  formatTimestampLabel,
+  getContinueWatching,
+} from "@/lib/storage";
 // storage/watchlist removed
 import {
   fetchPopularMovies,
@@ -15,8 +20,10 @@ import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
+  Image,
   ScrollView,
   Text,
+  TouchableOpacity,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -30,6 +37,7 @@ const Home = () => {
   const [sliderLoading, setSliderLoading] = useState(true);
   const [sliderError, setSliderError] = useState<string | null>(null);
   // continue watching removed
+  const [continueItems, setContinueItems] = useState<ContinueItem[]>([]);
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
@@ -70,8 +78,21 @@ const Home = () => {
   }, []);
 
   // Load continue watching summaries
-
-  // continue watching removed
+  useEffect(() => {
+    let mounted = true;
+    const load = async () => {
+      try {
+        const items = await getContinueWatching();
+        if (mounted) setContinueItems(items);
+      } catch {}
+    };
+    load();
+    const id = setInterval(load, 2000); // simple refresher when returning
+    return () => {
+      mounted = false;
+      clearInterval(id);
+    };
+  }, []);
 
   if (loading)
     return (
@@ -95,7 +116,51 @@ const Home = () => {
         contentContainerStyle={{ paddingBottom: insets.bottom + 80 }}
       >
         <Slider items={sliderItems} />
-        {/* continue watching removed */}
+        {continueItems.length > 0 && (
+          <View className="px-4 mt-6">
+            <Text className="text-white font-bold text-xl mb-3">
+              Continue Watching
+            </Text>
+            <FlatList
+              horizontal
+              data={continueItems}
+              keyExtractor={(item) =>
+                item.type === "movie"
+                  ? `m-${item.id}`
+                  : `t-${item.showId}-${item.season}-${item.episode}`
+              }
+              showsHorizontalScrollIndicator={false}
+              renderItem={({ item }) => (
+                <ContinueCard
+                  item={item}
+                  onPress={() => {
+                    if (item.type === "movie") {
+                      router.push({
+                        pathname: "/player/[id]",
+                        params: {
+                          id: String(item.id),
+                          type: "movie",
+                          startAt: String(Math.floor(item.position)),
+                        },
+                      } as any);
+                    } else {
+                      router.push({
+                        pathname: "/player/[id]",
+                        params: {
+                          id: String(item.showId),
+                          type: "tv",
+                          season: String(item.season),
+                          episode: String(item.episode),
+                          startAt: String(Math.floor(item.position)),
+                        },
+                      } as any);
+                    }
+                  }}
+                />
+              )}
+            />
+          </View>
+        )}
 
         <View className="px-4 mt-6">
           <Text className="text-white font-bold text-xl mb-3">
@@ -130,3 +195,50 @@ const Home = () => {
 export default Home;
 
 // Header moved to components/AppHeader
+
+function ContinueCard({
+  item,
+  onPress,
+}: {
+  item: ContinueItem;
+  onPress: () => void;
+}) {
+  const img = item.poster_path
+    ? `https://image.tmdb.org/t/p/w300${item.poster_path}`
+    : undefined;
+  const label =
+    item.type === "movie"
+      ? `${formatTimestampLabel(item.position)}`
+      : `S${item.season}E${item.episode} • ${formatTimestampLabel(item.position)}`;
+  const title =
+    item.type === "movie"
+      ? (item.title ?? "Movie")
+      : (item.showName ?? "TV Show");
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.85}
+      className="mr-3"
+      style={{ width: 120 }}
+    >
+      <View
+        className="rounded-xl overflow-hidden bg-neutral-800"
+        style={{ width: 120, height: 160 }}
+      >
+        {img ? (
+          <Image source={{ uri: img }} style={{ width: 120, height: 160 }} />
+        ) : (
+          <View className="w-full h-full items-center justify-center">
+            <Text className="text-white/70 text-xs">No Image</Text>
+          </View>
+        )}
+      </View>
+      <Text className="text-white text-xs mt-2" numberOfLines={1}>
+        {title}
+      </Text>
+      <Text className="text-gray-400 text-[11px]" numberOfLines={1}>
+        {label}
+      </Text>
+    </TouchableOpacity>
+  );
+}

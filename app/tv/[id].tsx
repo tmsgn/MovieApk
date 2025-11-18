@@ -1,4 +1,5 @@
 import MediaCard from "@/components/MediaCard";
+import { getLastEpisodeForShow, isSaved, toggleSave } from "@/lib/storage";
 import {
   fetchRelatedTVShows,
   fetchSeasonDetails,
@@ -45,6 +46,12 @@ export default function TvshowDetail() {
   const [activeTab, setActiveTab] = useState<
     "episodes" | "overview" | "cast" | "related"
   >("episodes");
+  const [saved, setSaved] = useState(false);
+  const [lastEpisode, setLastEpisode] = useState<{
+    season: number;
+    episode: number;
+    position: number;
+  } | null>(null);
   const { colors } = useTheme();
 
   useEffect(() => {
@@ -65,6 +72,18 @@ export default function TvshowDetail() {
         if (availableSeasons.length) {
           const seasonOne = availableSeasons.find((s) => s.season_number === 1);
           setSelectedSeason((seasonOne ?? availableSeasons[0]).season_number);
+        }
+        // saved state & last episode progress
+        const savedState = await isSaved(Number(id), "tv");
+        setSaved(savedState);
+        const last = await getLastEpisodeForShow(Number(id));
+        if (last) {
+          setLastEpisode({
+            season: last.season,
+            episode: last.episode,
+            position: last.position,
+          });
+          if (last.season) setSelectedSeason(last.season);
         }
       } catch (err) {
         console.log(err);
@@ -184,7 +203,7 @@ export default function TvshowDetail() {
           }}
         />
 
-        {/* Title + rating inside collapsing header (disappears with image) */}
+        {/* Title + rating and Save inside collapsing header (disappears with image) */}
         <Animated.View
           style={{
             position: "absolute",
@@ -197,9 +216,41 @@ export default function TvshowDetail() {
           }}
         >
           <Text className="text-white text-3xl font-bold">{tv.name}</Text>
-          <Text className="text-gray-400 mt-1 text-lg">
-            ⭐ {tv.vote_average.toFixed(1)} • {tv.first_air_date?.slice(0, 4)}
-          </Text>
+          <View className="flex-row items-center justify-between mt-1">
+            <Text className="text-gray-400 text-lg">
+              ⭐ {tv.vote_average.toFixed(1)} • {tv.first_air_date?.slice(0, 4)}
+            </Text>
+            <TouchableOpacity
+              onPress={async () => {
+                const nowSaved = await toggleSave({
+                  id: tv.id,
+                  type: "tv",
+                  title: tv.name,
+                  poster_path: tv.poster_path,
+                  backdrop_path: tv.backdrop_path,
+                  addedAt: Date.now(),
+                });
+                setSaved(nowSaved);
+              }}
+              className={`px-4 py-2 rounded-full flex-row items-center justify-center ${
+                saved ? "bg-white/10" : "bg-white"
+              }`}
+              activeOpacity={0.85}
+            >
+              <MaterialCommunityIcons
+                name={saved ? "bookmark-check" : "bookmark-plus"}
+                size={20}
+                color={saved ? "#fff" : "#000"}
+              />
+              <Text
+                className={`ml-2 font-semibold ${
+                  saved ? "text-white" : "text-black"
+                }`}
+              >
+                {saved ? "Saved" : "Save"}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </Animated.View>
       </Animated.View>
 
@@ -234,67 +285,69 @@ export default function TvshowDetail() {
 
             {activeTab === "episodes" && (
               <View className="mt-5">
-                <SelectDropdown
-                  data={seasonOptions}
-                  onSelect={(selectedItem: any) =>
-                    setSelectedSeason(selectedItem?.value)
-                  }
-                  defaultValue={
-                    seasonOptions.find((s) => s.value === selectedSeason) ??
-                    null
-                  }
-                  renderButton={(selectedItem: any, isOpened: boolean) => (
-                    <View
-                      style={{
-                        height: 48,
-                        borderRadius: 8,
-                        backgroundColor: "#000", // black theme
-                        paddingHorizontal: 12,
-                        borderWidth: 1,
-                        borderColor: "#333",
-                        flexDirection: "row",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                      }}
-                    >
-                      <Text
+                <View>
+                  <SelectDropdown
+                    data={seasonOptions}
+                    onSelect={(selectedItem: any) =>
+                      setSelectedSeason(selectedItem?.value)
+                    }
+                    defaultValue={
+                      seasonOptions.find((s) => s.value === selectedSeason) ??
+                      null
+                    }
+                    renderButton={(selectedItem: any, isOpened: boolean) => (
+                      <View
                         style={{
-                          color: selectedItem ? "#fff" : "#666",
-                          fontSize: 16,
+                          height: 48,
+                          borderRadius: 8,
+                          backgroundColor: "#000", // black theme
+                          paddingHorizontal: 12,
+                          borderWidth: 1,
+                          borderColor: "#333",
+                          flexDirection: "row",
+                          alignItems: "center",
+                          justifyContent: "space-between",
                         }}
                       >
-                        {(selectedItem && selectedItem.label) ||
-                          "Select Season"}
-                      </Text>
-                      <MaterialCommunityIcons
-                        name={isOpened ? "chevron-up" : "chevron-down"}
-                        size={20}
-                        color="#fff"
-                      />
-                    </View>
-                  )}
-                  renderItem={(
-                    item: any,
-                    index: number,
-                    isSelected: boolean
-                  ) => (
-                    <View
-                      style={{
-                        backgroundColor: isSelected ? "#333" : "#000",
-                        paddingVertical: 12,
-                        paddingHorizontal: 8,
-                      }}
-                    >
-                      <Text style={{ color: "#fff" }}>{item.label}</Text>
-                    </View>
-                  )}
-                  dropdownStyle={{
-                    backgroundColor: "#000",
-                    borderColor: "#333",
-                  }}
-                  dropdownOverlayColor="rgba(0,0,0,0.3)"
-                  showsVerticalScrollIndicator={false}
-                />
+                        <Text
+                          style={{
+                            color: selectedItem ? "#fff" : "#666",
+                            fontSize: 16,
+                          }}
+                        >
+                          {(selectedItem && selectedItem.label) ||
+                            "Select Season"}
+                        </Text>
+                        <MaterialCommunityIcons
+                          name={isOpened ? "chevron-up" : "chevron-down"}
+                          size={20}
+                          color="#fff"
+                        />
+                      </View>
+                    )}
+                    renderItem={(
+                      item: any,
+                      index: number,
+                      isSelected: boolean
+                    ) => (
+                      <View
+                        style={{
+                          backgroundColor: isSelected ? "#333" : "#000",
+                          paddingVertical: 12,
+                          paddingHorizontal: 8,
+                        }}
+                      >
+                        <Text style={{ color: "#fff" }}>{item.label}</Text>
+                      </View>
+                    )}
+                    dropdownStyle={{
+                      backgroundColor: "#000",
+                      borderColor: "#333",
+                    }}
+                    dropdownOverlayColor="rgba(0,0,0,0.3)"
+                    showsVerticalScrollIndicator={false}
+                  />
+                </View>
 
                 <View className="mt-5">
                   {seasonLoading && (
@@ -318,6 +371,16 @@ export default function TvshowDetail() {
                                       selectedSeason ?? item.season_number
                                     ),
                                     episode: String(item.episode_number),
+                                    ...(lastEpisode &&
+                                    lastEpisode.season ===
+                                      (selectedSeason ?? item.season_number) &&
+                                    lastEpisode.episode === item.episode_number
+                                      ? {
+                                          startAt: String(
+                                            Math.floor(lastEpisode.position)
+                                          ),
+                                        }
+                                      : {}),
                                   },
                                 } as any);
                               go();
@@ -339,6 +402,14 @@ export default function TvshowDetail() {
                               >
                                 {item.overview || "No description available."}
                               </Text>
+                              {lastEpisode &&
+                                lastEpisode.season ===
+                                  (selectedSeason ?? item.season_number) &&
+                                lastEpisode.episode === item.episode_number && (
+                                  <Text className="text-xs text-blue-400 mt-1">
+                                    • In Progress
+                                  </Text>
+                                )}
                             </View>
                           </TouchableOpacity>
                           <View className="h-px bg-neutral-800 my-3" />
@@ -442,6 +513,8 @@ export default function TvshowDetail() {
           { useNativeDriver: false }
         )}
       />
+
+      {/* Save button moved inline with season selector above; removed floating button */}
 
       <Animated.View
         style={{
